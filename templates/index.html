@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YAML Parser - Bitbucket Integration</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .json-viewer {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', monospace;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const YAMLParser = () => {
+            const [formData, setFormData] = useState({
+                workspace: 'kyleswe1',
+                repository: 'yaml_test',
+                access_token: 'REMOVED_SECRET<'
+            });
+            const [loading, setLoading] = useState(false);
+            const [result, setResult] = useState(null);
+            const [error, setError] = useState(null);
+            const [repositories, setRepositories] = useState([]);
+            const [selectedRepo, setSelectedRepo] = useState(null);
+
+            useEffect(() => {
+                fetchRepositories();
+            }, []);
+
+            const fetchRepositories = async () => {
+                try {
+                    const response = await fetch('/api/repositories/');
+                    if (response.ok) {
+                        const data = await response.json();
+                        setRepositories(data);
+                    }
+                } catch (err) {
+                    console.error('Error fetching repositories:', err);
+                }
+            };
+
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({
+                    ...prev,
+                    [name]: value
+                }));
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                setError(null);
+                setResult(null);
+
+                try {
+                    const response = await fetch('/api/parse-repository/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(formData)
+                    });
+
+                    const data = await response.json();
+
+                    if (response.ok) {
+                        setResult(data);
+                        fetchRepositories(); // Refresh repositories list
+                    } else {
+                        setError(data.error || 'An error occurred');
+                    }
+                } catch (err) {
+                    setError('Network error: ' + err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const fetchRepositoryFiles = async (repoId) => {
+                try {
+                    const response = await fetch(`/api/repositories/${repoId}/files/`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        setSelectedRepo(data);
+                    }
+                } catch (err) {
+                    console.error('Error fetching repository files:', err);
+                }
+            };
+
+            const JsonViewer = ({ data, level = 0 }) => {
+                if (typeof data !== 'object' || data === null) {
+                    return <span className="text-green-400">{JSON.stringify(data)}</span>;
+                }
+
+                if (Array.isArray(data)) {
+                    return (
+                        <div className="ml-4">
+                            <span className="text-blue-400">[</span>
+                            {data.map((item, index) => (
+                                <div key={index} className="ml-4">
+                                    <JsonViewer data={item} level={level + 1} />
+                                    {index < data.length - 1 && <span className="text-gray-400">,</span>}
+                                </div>
+                            ))}
+                            <span className="text-blue-400">]</span>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="ml-4">
+                        <span className="text-blue-400">{'{'}</span>
+                        {Object.entries(data).map(([key, value], index) => (
+                            <div key={key} className="ml-4">
+                                <span className="text-yellow-400">"{key}"</span>
+                                <span className="text-gray-400">: </span>
+                                <JsonViewer data={value} level={level + 1} />
+                                {index < Object.keys(data).length - 1 && <span className="text-gray-400">,</span>}
+                            </div>
+                        ))}
+                        <span className="text-blue-400">{'}'}</span>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="container mx-auto px-4 py-8">
+                    <div className="max-w-6xl mx-auto">
+                        <h1 className="text-4xl font-bold text-center mb-8 text-gray-800">
+                            🔧 YAML Parser - Bitbucket Integration
+                        </h1>
+
+                        {/* Form Section */}
+                        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+                            <h2 className="text-2xl font-semibold mb-4 text-gray-700">
+                                📁 Parse Repository YAML Files
+                            </h2>
+                            <form onSubmit={handleSubmit} className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Workspace
+                                        </label>
+                                        <input
+                                            type="text"
+                                            name="workspace"
+                                            value={formData.workspace}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Enter workspace name"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Repository
+                                        </label>
+                                        <input
+                                            type="text"
+                                            name="repository"
+                                            value={formData.repository}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Enter repository name"
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Access Token
+                                        </label>
+                                        <input
+                                            type="password"
+                                            name="access_token"
+                                            value={formData.access_token}
+                                            onChange={handleInputChange}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Enter access token"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="w-full bg-blue-600 text-white py-3 px-6 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                                >
+                                    {loading ? (
+                                        <>
+                                            <div className="loading mr-2"></div>
+                                            Parsing...
+                                        </>
+                                    ) : (
+                                        '🔍 Parse YAML Files'
+                                    )}
+                                </button>
+                            </form>
+                        </div>
+
+                        {/* Error Display */}
+                        {error && (
+                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+                                <strong>Error:</strong> {error}
+                            </div>
+                        )}
+
+                        {/* Result Display */}
+                        {result && (
+                            <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+                                <h2 className="text-2xl font-semibold mb-4 text-gray-700">
+                                    ✅ Parse Results
+                                </h2>
+                                <div className="mb-4">
+                                    <p className="text-green-600 font-medium">{result.message}</p>
+                                    <p className="text-gray-600">Repository ID: {result.repository_id}</p>
+                                </div>
+                                
+                                {result.files && result.files.length > 0 && (
+                                    <div className="space-y-4">
+                                        <h3 className="text-lg font-semibold text-gray-700">
+                                            📄 Parsed Files ({result.files.length})
+                                        </h3>
+                                        {result.files.map((file, index) => (
+                                            <div key={index} className="border border-gray-200 rounded-lg p-4">
+                                                <h4 className="text-md font-medium text-blue-600 mb-2">
+                                                    {file.file_path}
+                                                </h4>
+                                                <div className="json-viewer">
+                                                    <JsonViewer data={file.parsed_data} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Repositories List */}
+                        {repositories.length > 0 && (
+                            <div className="bg-white rounded-lg shadow-md p-6 mb-8">
+                                <h2 className="text-2xl font-semibold mb-4 text-gray-700">
+                                    📚 Saved Repositories
+                                </h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {repositories.map((repo) => (
+                                        <div key={repo.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                                            <h3 className="font-medium text-gray-800 mb-2">
+                                                {repo.workspace}/{repo.repository}
+                                            </h3>
+                                            <p className="text-sm text-gray-600 mb-3">
+                                                Created: {new Date(repo.created_at).toLocaleDateString()}
+                                            </p>
+                                            <button
+                                                onClick={() => fetchRepositoryFiles(repo.id)}
+                                                className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                                            >
+                                                View Files
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Selected Repository Files */}
+                        {selectedRepo && (
+                            <div className="bg-white rounded-lg shadow-md p-6">
+                                <h2 className="text-2xl font-semibold mb-4 text-gray-700">
+                                    📁 Files in {selectedRepo.repository.workspace}/{selectedRepo.repository.repository}
+                                </h2>
+                                {selectedRepo.files.length > 0 ? (
+                                    <div className="space-y-4">
+                                        {selectedRepo.files.map((file) => (
+                                            <div key={file.id} className="border border-gray-200 rounded-lg p-4">
+                                                <h3 className="text-md font-medium text-blue-600 mb-2">
+                                                    {file.file_path}
+                                                </h3>
+                                                <div className="json-viewer">
+                                                    <JsonViewer data={file.parsed_data} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-gray-600">No YAML files found in this repository.</p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<YAMLParser />, document.getElementById('root'));
+    </script>
+</body>
+</html> 
