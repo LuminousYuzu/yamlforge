@@ -66,10 +66,28 @@ class BitbucketYAMLReader:
             response.raise_for_status()
             data = response.json()
             
+            print(f"Debug: Found {len(data.get('values', []))} files in repository")
+            
             yaml_files = []
+            all_files = []
+            
             for item in data.get('values', []):
-                if item['type'] == 'commit_file' and item['path'].endswith(('.yml', '.yaml')):
-                    yaml_files.append(item['path'])
+                if item['type'] == 'commit_file':
+                    file_path = item['path']
+                    all_files.append(file_path)
+                    
+                    # Check for YAML files with various extensions
+                    if (file_path.endswith(('.yml', '.yaml')) or 
+                        file_path.endswith(('.yml', '.yaml')) or
+                        'application.yml' in file_path.lower() or
+                        'application.yaml' in file_path.lower() or
+                        'config.yml' in file_path.lower() or
+                        'config.yaml' in file_path.lower()):
+                        yaml_files.append(file_path)
+                        print(f"Debug: Found YAML file: {file_path}")
+            
+            print(f"Debug: All files found: {all_files}")
+            print(f"Debug: YAML files found: {yaml_files}")
             
             return yaml_files
         except requests.exceptions.RequestException as e:

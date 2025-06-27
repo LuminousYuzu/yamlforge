@@ -102,28 +102,10 @@
             const [servicesLoading, setServicesLoading] = useState(false);
             
             // Scrap Catalog state
-            const [scrapRepos, setScrapRepos] = useState(() => {
-                // Load from localStorage if present
-                const saved = localStorage.getItem('scrapCatalog');
-                if (saved) {
-                    try {
-                        return JSON.parse(saved);
-                    } catch (e) {
-                        return [
-                            { id: 1, workspace: '', repository: '', access_token: '', status: 'pending' }
-                        ];
-                    }
-                }
-                return [
-                    { id: 1, workspace: '', repository: '', access_token: '', status: 'pending' }
-                ];
-            });
+            const [scrapRepos, setScrapRepos] = useState([
+                { id: 1, workspace: '', repository: '', access_token: '', status: 'pending' }
+            ]);
             const [scrapResults, setScrapResults] = useState({});
-
-            // Persist scrapRepos to localStorage on change
-            useEffect(() => {
-                localStorage.setItem('scrapCatalog', JSON.stringify(scrapRepos));
-            }, [scrapRepos]);
 
             useEffect(() => {
                 fetchRepositories();
@@ -299,42 +281,6 @@
                     }
                 } catch (err) {
                     console.error('Error fetching repository files:', err);
-                }
-            };
-
-            const deleteRepository = async (repoId) => {
-                if (!confirm('Are you sure you want to delete this repository? This will also delete all associated YAML files and services.')) {
-                    return;
-                }
-
-                try {
-                    const response = await fetch(`/api/repositories/${repoId}/delete/`, {
-                        method: 'DELETE',
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        alert(`Successfully deleted repository. Deleted: ${data.deleted_items.repository} repository, ${data.deleted_items.yaml_files} YAML files, ${data.deleted_items.services} services`);
-                        
-                        // Refresh the repositories list
-                        fetchRepositories();
-                        
-                        // Clear selected repo if it was the deleted one
-                        if (selectedRepo && selectedRepo.repository.id === repoId) {
-                            setSelectedRepo(null);
-                        }
-                        
-                        // Refresh services if we're on the service catalog view
-                        if (currentView === 'service-catalog') {
-                            fetchServices();
-                        }
-                    } else {
-                        const errorData = await response.json();
-                        alert(`Error deleting repository: ${errorData.error || 'Unknown error'}`);
-                    }
-                } catch (err) {
-                    console.error('Error deleting repository:', err);
-                    alert('Error deleting repository. Please try again.');
                 }
             };
 
@@ -666,18 +612,9 @@
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {repositories.map((repo) => (
                                 <div key={repo.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <h3 className="font-semibold text-gray-800 text-lg">
-                                            {repo.workspace}/{repo.repository}
-                                        </h3>
-                                        <button
-                                            onClick={() => deleteRepository(repo.id)}
-                                            className="text-red-600 hover:text-red-800 text-sm p-1 hover:bg-red-50 rounded"
-                                            title="Delete repository"
-                                        >
-                                            🗑️
-                                        </button>
-                                    </div>
+                                    <h3 className="font-semibold text-gray-800 mb-2 text-lg">
+                                        {repo.workspace}/{repo.repository}
+                                    </h3>
                                     <p className="text-sm text-gray-600 mb-4">
                                         Created: {new Date(repo.created_at).toLocaleDateString()}
                                     </p>
