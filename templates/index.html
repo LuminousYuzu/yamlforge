@@ -44,13 +44,21 @@
             const [formData, setFormData] = useState({
                 workspace: 'kyleswe1',
                 repository: 'yaml_test',
-                access_token: ''
+                access_token: '' // Access token must be entered by the user
             });
             const [loading, setLoading] = useState(false);
             const [result, setResult] = useState(null);
             const [error, setError] = useState(null);
             const [repositories, setRepositories] = useState([]);
             const [selectedRepo, setSelectedRepo] = useState(null);
+            const [currentView, setCurrentView] = useState('saved-repos'); // 'saved-repos' or 'scrap-catalog'
+            const [sidebarOpen, setSidebarOpen] = useState(true);
+            
+            // Scrap Catalog state
+            const [scrapRepos, setScrapRepos] = useState([
+                { id: 1, workspace: '', repository: '', access_token: '', status: 'pending' }
+            ]);
+            const [scrapResults, setScrapResults] = useState({});
 
             useEffect(() => {
                 fetchRepositories();
@@ -76,11 +84,61 @@
                 }));
             };
 
-            const handleSubmit = async (e) => {
-                e.preventDefault();
+            const handleScrapRepoChange = (id, field, value) => {
+                setScrapRepos(prev => {
+                    const newRepos = [...prev];
+                    const repoIndex = newRepos.findIndex(repo => repo.id === id);
+                    if (repoIndex !== -1) {
+                        newRepos[repoIndex] = { ...newRepos[repoIndex], [field]: value };
+                    }
+                    return newRepos;
+                });
+            };
+
+            const addEmptyRow = () => {
+                const newId = Math.max(...scrapRepos.map(r => r.id), 0) + 1;
+                setScrapRepos(prev => [...prev, { 
+                    id: newId, 
+                    workspace: '', 
+                    repository: '', 
+                    access_token: '', 
+                    status: 'pending' 
+                }]);
+            };
+
+            const removeRow = (id) => {
+                if (scrapRepos.length > 1) {
+                    setScrapRepos(prev => prev.filter(repo => repo.id !== id));
+                    setScrapResults(prev => {
+                        const newResults = { ...prev };
+                        delete newResults[id];
+                        return newResults;
+                    });
+                }
+            };
+
+            const copyToClipboard = async (text) => {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    
+                } catch (err) {
+                    console.error('Failed to copy text: ', err);
+                }
+            };
+
+            const handleScrapRepository = async (repo) => {
+                if (!repo.workspace || !repo.repository || !repo.access_token) {
+                    setError('Please fill in all fields for the repository');
+                    return;
+                }
+
                 setLoading(true);
                 setError(null);
-                setResult(null);
+
+                // Update status to processing
+                setScrapRepos(prev => prev.map(r => 
+                    r.id === repo.id ? { ...r, status: 'processing' } : r
+                ));
 
                 try {
                     const response = await fetch('/api/parse-repository/', {
@@ -88,22 +146,62 @@
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify(formData)
+                        body: JSON.stringify({
+                            workspace: repo.workspace,
+                            repository: repo.repository,
+                            access_token: repo.access_token
+                        })
                     });
 
                     const data = await response.json();
 
                     if (response.ok) {
-                        setResult(data);
-                        fetchRepositories(); // Refresh repositories list
+                        // Update status to success and store results
+                        setScrapRepos(prev => prev.map(r => 
+                            r.id === repo.id ? { ...r, status: 'success' } : r
+                        ));
+                        setScrapResults(prev => ({
+                            ...prev,
+                            [repo.id]: data
+                        }));
+                        
+                        // Refresh saved repositories
+                        fetchRepositories();
                     } else {
+                        // Update status to error
+                        setScrapRepos(prev => prev.map(r => 
+                            r.id === repo.id ? { ...r, status: 'error' } : r
+                        ));
                         setError(data.error || 'An error occurred');
                     }
                 } catch (err) {
+                    setScrapRepos(prev => prev.map(r => 
+                        r.id === repo.id ? { ...r, status: 'error' } : r
+                    ));
                     setError('Network error: ' + err.message);
                 } finally {
                     setLoading(false);
                 }
+            };
+
+            const handleScrapAll = async () => {
+                const validRepos = scrapRepos.filter(repo => 
+                    repo.workspace && repo.repository && repo.access_token
+                );
+
+                if (validRepos.length === 0) {
+                    setError('Please fill in at least one repository');
+                    return;
+                }
+
+                setLoading(true);
+                setError(null);
+
+                for (const repo of validRepos) {
+                    await handleScrapRepository(repo);
+                }
+
+                setLoading(false);
             };
 
             const fetchRepositoryFiles = async (repoId) => {
@@ -154,109 +252,120 @@
                 );
             };
 
-            return (
-                <div className="container mx-auto px-4 py-8">
-                    <div className="max-w-6xl mx-auto">
-                        <h1 className="text-4xl font-bold text-center mb-8 text-gray-800">
-                            🔧 YAML Parser - Bitbucket Integration
-                        </h1>
+            const RepositoryRow = ({ repo, onUpdate, onRemove, onScrap, loading, scrapResults, canRemove }) => {
+                const handleChange = (field, value) => {
+                    onUpdate(repo.id, field, value);
+                };
 
-                        {/* Form Section */}
-                        <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-                            <h2 className="text-2xl font-semibold mb-4 text-gray-700">
-                                📁 Parse Repository YAML Files
-                            </h2>
-                            <form onSubmit={handleSubmit} className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Workspace
-                                        </label>
-                                        <input
-                                            type="text"
-                                            name="workspace"
-                                            value={formData.workspace}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Enter workspace name"
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Repository
-                                        </label>
-                                        <input
-                                            type="text"
-                                            name="repository"
-                                            value={formData.repository}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Enter repository name"
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Access Token
-                                        </label>
-                                        <input
-                                            type="password"
-                                            name="access_token"
-                                            value={formData.access_token}
-                                            onChange={handleInputChange}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Enter access token"
-                                            required
-                                        />
-                                    </div>
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full bg-blue-600 text-white py-3 px-6 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                                >
-                                    {loading ? (
-                                        <>
-                                            <div className="loading mr-2"></div>
-                                            Parsing...
-                                        </>
-                                    ) : (
-                                        '🔍 Parse YAML Files'
-                                    )}
-                                </button>
-                            </form>
-                        </div>
-
-                        {/* Error Display */}
-                        {error && (
-                            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-                                <strong>Error:</strong> {error}
+                return (
+                    <div className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-medium text-gray-800">Repository #{repo.id}</h4>
+                            <div className="flex items-center space-x-2">
+                                {repo.status === 'processing' && (
+                                    <div className="loading"></div>
+                                )}
+                                {repo.status === 'success' && (
+                                    <span className="text-green-600 text-sm">✅ Success</span>
+                                )}
+                                {repo.status === 'error' && (
+                                    <span className="text-red-600 text-sm">❌ Error</span>
+                                )}
+                                {canRemove && (
+                                    <button
+                                        onClick={() => onRemove(repo.id)}
+                                        className="text-red-600 hover:text-red-800 text-sm"
+                                    >
+                                        Remove
+                                    </button>
+                                )}
                             </div>
-                        )}
-
-                        {/* Result Display */}
-                        {result && (
-                            <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-                                <h2 className="text-2xl font-semibold mb-4 text-gray-700">
-                                    ✅ Parse Results
-                                </h2>
-                                <div className="mb-4">
-                                    <p className="text-green-600 font-medium">{result.message}</p>
-                                    <p className="text-gray-600">Repository ID: {result.repository_id}</p>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Workspace
+                                </label>
+                                <input
+                                    type="text"
+                                    value={repo.workspace}
+                                    onChange={(e) => handleChange('workspace', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Enter workspace name"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Repository
+                                </label>
+                                <input
+                                    type="text"
+                                    value={repo.repository}
+                                    onChange={(e) => handleChange('repository', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Enter repository name"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Access Token
+                                </label>
+                                <div className="relative flex">
+                                    <input
+                                        type="password"
+                                        value={repo.access_token}
+                                        onChange={(e) => handleChange('access_token', e.target.value)}
+                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Enter access token"
+                                    />
+                                    {repo.access_token && (
+                                        <button
+                                            type="button"
+                                            onClick={() => copyToClipboard(repo.access_token)}
+                                            className="px-3 py-2 border border-l-0 border-gray-300 rounded-r-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            title="Copy access token"
+                                        >
+                                            📋
+                                        </button>
+                                    )}
                                 </div>
-                                
-                                {result.files && result.files.length > 0 && (
-                                    <div className="space-y-4">
-                                        <h3 className="text-lg font-semibold text-gray-700">
-                                            📄 Parsed Files ({result.files.length})
-                                        </h3>
-                                        {result.files.map((file, index) => (
-                                            <div key={index} className="border border-gray-200 rounded-lg p-4">
-                                                <h4 className="text-md font-medium text-blue-600 mb-2">
+                            </div>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                            <button
+                                onClick={() => onScrap(repo)}
+                                disabled={loading || !repo.workspace || !repo.repository || !repo.access_token}
+                                className="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Scrap This Repository
+                            </button>
+                            
+                            {scrapResults[repo.id] && (
+                                <span className="text-sm text-gray-600">
+                                    {scrapResults[repo.id].files?.length || 0} files parsed
+                                </span>
+                            )}
+                        </div>
+                        
+                        {/* Show results for this specific repository */}
+                        {scrapResults[repo.id] && (
+                            <div className="mt-4 pt-4 border-t border-gray-200">
+                                <h5 className="text-sm font-medium text-gray-700 mb-2">
+                                    Results for {repo.workspace}/{repo.repository}
+                                </h5>
+                                <p className="text-sm text-green-600 mb-2">
+                                    {scrapResults[repo.id].message}
+                                </p>
+                                {scrapResults[repo.id].files && scrapResults[repo.id].files.length > 0 && (
+                                    <div className="space-y-2">
+                                        {scrapResults[repo.id].files.map((file, index) => (
+                                            <div key={index} className="bg-gray-50 rounded p-2">
+                                                <div className="text-sm font-medium text-blue-600">
                                                     {file.file_path}
-                                                </h4>
-                                                <div className="json-viewer">
+                                                </div>
+                                                <div className="json-viewer text-xs">
                                                     <JsonViewer data={file.parsed_data} />
                                                 </div>
                                             </div>
@@ -265,58 +374,185 @@
                                 )}
                             </div>
                         )}
+                    </div>
+                );
+            };
 
-                        {/* Repositories List */}
-                        {repositories.length > 0 && (
-                            <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-                                <h2 className="text-2xl font-semibold mb-4 text-gray-700">
-                                    📚 Saved Repositories
-                                </h2>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {repositories.map((repo) => (
-                                        <div key={repo.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                                            <h3 className="font-medium text-gray-800 mb-2">
-                                                {repo.workspace}/{repo.repository}
-                                            </h3>
-                                            <p className="text-sm text-gray-600 mb-3">
-                                                Created: {new Date(repo.created_at).toLocaleDateString()}
-                                            </p>
-                                            <button
-                                                onClick={() => fetchRepositoryFiles(repo.id)}
-                                                className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-                                            >
-                                                View Files
-                                            </button>
+            const SavedRepositoriesView = () => (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-semibold text-gray-700">
+                            📚 Saved Repositories
+                        </h2>
+                        <button
+                            onClick={() => setCurrentView('scrap-catalog')}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            + Add New Repositories
+                        </button>
+                    </div>
+
+                    {repositories.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {repositories.map((repo) => (
+                                <div key={repo.id} className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+                                    <h3 className="font-semibold text-gray-800 mb-2 text-lg">
+                                        {repo.workspace}/{repo.repository}
+                                    </h3>
+                                    <p className="text-sm text-gray-600 mb-4">
+                                        Created: {new Date(repo.created_at).toLocaleDateString()}
+                                    </p>
+                                    <button
+                                        onClick={() => fetchRepositoryFiles(repo.id)}
+                                        className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    >
+                                        View Files
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-lg shadow-md p-8 text-center">
+                            <div className="text-gray-400 text-6xl mb-4">📚</div>
+                            <h3 className="text-lg font-medium text-gray-700 mb-2">No repositories yet</h3>
+                            <p className="text-gray-500 mb-4">Use the Scrap Catalog to add and parse repositories</p>
+                            <button
+                                onClick={() => setCurrentView('scrap-catalog')}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                Go to Scrap Catalog
+                            </button>
+                        </div>
+                    )}
+
+                    {selectedRepo && (
+                        <div className="bg-white rounded-lg shadow-md p-6">
+                            <h3 className="text-xl font-semibold mb-4 text-gray-700">
+                                📁 Files in {selectedRepo.repository.workspace}/{selectedRepo.repository.repository}
+                            </h3>
+                            {selectedRepo.files.length > 0 ? (
+                                <div className="space-y-4">
+                                    {selectedRepo.files.map((file) => (
+                                        <div key={file.id} className="border border-gray-200 rounded-lg p-4">
+                                            <h4 className="text-md font-medium text-blue-600 mb-2">
+                                                {file.file_path}
+                                            </h4>
+                                            <div className="json-viewer">
+                                                <JsonViewer data={file.parsed_data} />
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
-                            </div>
-                        )}
+                            ) : (
+                                <p className="text-gray-600">No YAML files found in this repository.</p>
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
 
-                        {/* Selected Repository Files */}
-                        {selectedRepo && (
-                            <div className="bg-white rounded-lg shadow-md p-6">
-                                <h2 className="text-2xl font-semibold mb-4 text-gray-700">
-                                    📁 Files in {selectedRepo.repository.workspace}/{selectedRepo.repository.repository}
-                                </h2>
-                                {selectedRepo.files.length > 0 ? (
-                                    <div className="space-y-4">
-                                        {selectedRepo.files.map((file) => (
-                                            <div key={file.id} className="border border-gray-200 rounded-lg p-4">
-                                                <h3 className="text-md font-medium text-blue-600 mb-2">
-                                                    {file.file_path}
-                                                </h3>
-                                                <div className="json-viewer">
-                                                    <JsonViewer data={file.parsed_data} />
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <p className="text-gray-600">No YAML files found in this repository.</p>
-                                )}
+            const ScrapCatalogView = () => (
+                <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-semibold text-gray-700">
+                            🔍 Scrap Catalog - Repository Parser
+                        </h2>
+                        <div className="flex space-x-2">
+                            <button
+                                onClick={addEmptyRow}
+                                className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            >
+                                + Add Row
+                            </button>
+                            <button
+                                onClick={handleScrapAll}
+                                disabled={loading}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading ? 'Processing...' : 'Scrap All'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                        <div className="p-6">
+                            <h3 className="text-lg font-medium text-gray-700 mb-4">Repository List</h3>
+                            
+                            <div className="space-y-4">
+                                {scrapRepos.map((repo) => (
+                                    <RepositoryRow
+                                        key={repo.id}
+                                        repo={repo}
+                                        onUpdate={handleScrapRepoChange}
+                                        onRemove={removeRow}
+                                        onScrap={handleScrapRepository}
+                                        loading={loading}
+                                        scrapResults={scrapResults}
+                                        canRemove={scrapRepos.length > 1}
+                                    />
+                                ))}
                             </div>
-                        )}
+                        </div>
+                    </div>
+
+                    {error && (
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                            <strong>Error:</strong> {error}
+                        </div>
+                    )}
+                </div>
+            );
+
+            return (
+                <div className="flex h-screen bg-gray-100">
+                    {/* Sidebar */}
+                    <div className={`${sidebarOpen ? 'w-64' : 'w-16'} bg-gray-800 text-white transition-all duration-300 ease-in-out`}>
+                        <div className="p-4">
+                            <div className="flex items-center justify-between mb-6">
+                                <h1 className={`font-bold text-xl ${sidebarOpen ? 'block' : 'hidden'}`}>
+                                    🔧 YAML Forge
+                                </h1>
+                                <button
+                                    onClick={() => setSidebarOpen(!sidebarOpen)}
+                                    className="p-2 rounded hover:bg-gray-700"
+                                >
+                                    {sidebarOpen ? '◀' : '▶'}
+                                </button>
+                            </div>
+                            
+                            <nav className="space-y-2">
+                                <button
+                                    onClick={() => setCurrentView('saved-repos')}
+                                    className={`w-full flex items-center px-3 py-2 rounded-md transition-colors ${
+                                        currentView === 'saved-repos' 
+                                            ? 'bg-blue-600 text-white' 
+                                            : 'text-gray-300 hover:bg-gray-700'
+                                    }`}
+                                >
+                                    <span className="text-xl mr-3">📚</span>
+                                    {sidebarOpen && <span>Saved Repositories</span>}
+                                </button>
+                                
+                                <button
+                                    onClick={() => setCurrentView('scrap-catalog')}
+                                    className={`w-full flex items-center px-3 py-2 rounded-md transition-colors ${
+                                        currentView === 'scrap-catalog' 
+                                            ? 'bg-blue-600 text-white' 
+                                            : 'text-gray-300 hover:bg-gray-700'
+                                    }`}
+                                >
+                                    <span className="text-xl mr-3">🔍</span>
+                                    {sidebarOpen && <span>Scrap Catalog</span>}
+                                </button>
+                            </nav>
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    <div className="flex-1 overflow-auto">
+                        <div className="p-6">
+                            {currentView === 'saved-repos' ? <SavedRepositoriesView /> : <ScrapCatalogView />}
+                        </div>
                     </div>
                 </div>
             );
